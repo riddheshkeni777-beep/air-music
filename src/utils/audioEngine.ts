@@ -3,7 +3,6 @@ import { AudioEngineParams } from '../types';
 export class AudioEngine {
   private ctx: AudioContext | null = null;
   private isPlaying = false;
-  
   // Audio Nodes
   private masterGain: GainNode | null = null;
   private delayNode: DelayNode | null = null;
@@ -14,6 +13,21 @@ export class AudioEngine {
   private reverbGain: GainNode | null = null;
   private pannerNode: StereoPannerNode | null = null;
   public analyser: AnalyserNode | null = null;
+
+  // Play Mode (Procedural Synth vs Song Stems Player)
+  private playMode: 'synth' | 'song' = 'synth';
+  private loadedAudioBuffer: AudioBuffer | null = null;
+  private songSourceNode: AudioBufferSourceNode | null = null;
+  
+  // Stems DSP Crossover Filters
+  private drumsFilter: BiquadFilterNode | null = null;
+  private pianoFilter: BiquadFilterNode | null = null;
+  private guitarFilter: BiquadFilterNode | null = null;
+  private synthFilter: BiquadFilterNode | null = null;
+  private bassFilter: BiquadFilterNode | null = null;
+  private padFilter: BiquadFilterNode | null = null;
+
+  private droneOscillators: OscillatorNode[] = [];
 
   // Track Gains
   private drumsGain: GainNode | null = null;
@@ -90,6 +104,7 @@ export class AudioEngine {
 
   public init() {
     if (this.ctx) return;
+    console.log("AudioEngine: Initializing AudioContext and routing nodes...");
     
     // Create audio context
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
@@ -151,7 +166,7 @@ export class AudioEngine {
     this.bassGain.gain.value = 0;
 
     // CONNECTIONS
-    // Tracks go to Filter
+    // Tracks go to Filter Node
     this.drumsGain.connect(this.filterNode);
     this.pianoGain.connect(this.filterNode);
     this.guitarGain.connect(this.filterNode);
@@ -159,7 +174,43 @@ export class AudioEngine {
     this.padGain.connect(this.filterNode);
     this.bassGain.connect(this.filterNode);
 
-    // Filter goes to Master, Reverb send, and Delay send
+    // Build Stems DSP Crossover Filters
+    this.bassFilter = this.ctx.createBiquadFilter();
+    this.bassFilter.type = 'lowpass';
+    this.bassFilter.frequency.value = 150; // sub bass
+
+    this.drumsFilter = this.ctx.createBiquadFilter();
+    this.drumsFilter.type = 'bandpass';
+    this.drumsFilter.frequency.value = 3000;
+    this.drumsFilter.Q.value = 0.5; // rhythm transient range
+
+    this.pianoFilter = this.ctx.createBiquadFilter();
+    this.pianoFilter.type = 'bandpass';
+    this.pianoFilter.frequency.value = 1000; // mid range (lyrics/vocals/piano)
+    this.pianoFilter.Q.value = 1.0;
+
+    this.guitarFilter = this.ctx.createBiquadFilter();
+    this.guitarFilter.type = 'bandpass';
+    this.guitarFilter.frequency.value = 2200; // mid-high instruments
+    this.guitarFilter.Q.value = 1.0;
+
+    this.synthFilter = this.ctx.createBiquadFilter();
+    this.synthFilter.type = 'highpass';
+    this.synthFilter.frequency.value = 3500; // lead highs
+
+    this.padFilter = this.ctx.createBiquadFilter();
+    this.padFilter.type = 'bandpass';
+    this.padFilter.frequency.value = 500; // mid-low pads
+    this.padFilter.Q.value = 1.0;
+
+    // Connect crossover filters to track gains
+    this.drumsFilter.connect(this.drumsGain);
+    this.pianoFilter.connect(this.pianoGain);
+    this.guitarFilter.connect(this.guitarGain);
+    this.synthFilter.connect(this.synthGain);
+    this.bassFilter.connect(this.bassGain);
+    this.padFilter.connect(this.padGain);
+
     this.filterNode.connect(this.masterGain);
     
     if (this.reverbNode && this.reverbGain) {
@@ -179,25 +230,56 @@ export class AudioEngine {
 
     // Start Ambient Drone Pad
     this.startAmbientDrone();
+    console.log("AudioEngine: initialization complete.");
   }
 
   public start() {
+    console.log("AudioEngine: start() called. playMode:", this.playMode, "isPlaying:", this.isPlaying);
     this.init();
-    if (this.isPlaying) return;
+    if (this.isPlaying) {
+      console.log("AudioEngine: already playing, start() ignored.");
+      return;
+    }
     
     if (this.ctx && this.ctx.state === 'suspended') {
-      this.ctx.resume();
+      console.log("AudioContext is suspended, calling resume()...");
+      this.ctx.resume().then(() => {
+        console.log("AudioContext resumed successfully. State:", this.ctx?.state);
+      }).catch(err => {
+        console.error("Failed to resume AudioContext:", err);
+      });
     }
 
     this.isPlaying = true;
     this.currentStep = 0;
     if (this.ctx) {
+      if (this.playMode === 'song' && this.loadedAudioBuffer) {
+        console.log("Starting songSourceNode playback...");
+        this.songSourceNode = this.ctx.createBufferSource();
+        this.songSourceNode.buffer = this.loadedAudioBuffer;
+        this.songSourceNode.loop = true;
+
+        if (this.drumsFilter) this.songSourceNode.connect(this.drumsFilter);
+        if (this.pianoFilter) this.songSourceNode.connect(this.pianoFilter);
+        if (this.guitarFilter) this.songSourceNode.connect(this.guitarFilter);
+        if (this.synthFilter) this.songSourceNode.connect(this.synthFilter);
+        if (this.bassFilter) this.songSourceNode.connect(this.bassFilter);
+        if (this.padFilter) this.songSourceNode.connect(this.padFilter);
+
+        this.songSourceNode.start(0);
+        console.log("songSourceNode playback started.");
+      }
+
+      this.updateParams(this.params);
+      console.log("AudioEngine: parameters updated on start:", this.params);
       this.nextNoteTime = this.ctx.currentTime + 0.1;
       this.scheduler();
+      console.log("AudioEngine: sequencer scheduler started.");
     }
   }
 
   public stop() {
+    console.log("AudioEngine: stop() called.");
     this.isPlaying = false;
     if (this.timerId) {
       clearTimeout(this.timerId);
@@ -208,9 +290,24 @@ export class AudioEngine {
     if (this.leadVoiceGain && this.ctx) {
       this.leadVoiceGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05);
     }
+
+    // Stop song playback
+    if (this.songSourceNode) {
+      try {
+        this.songSourceNode.stop();
+      } catch (e) {
+        // already stopped
+      }
+      this.songSourceNode.disconnect();
+      this.songSourceNode = null;
+    }
+
+    // Stop drone oscillators
+    this.stopAmbientDrone();
   }
 
   public destroy() {
+    console.log("AudioEngine: destroy() called.");
     this.stop();
     if (this.ctx) {
       this.ctx.close();
@@ -222,57 +319,128 @@ export class AudioEngine {
     return this.isPlaying;
   }
 
+  public setPlayMode(mode: 'synth' | 'song') {
+    console.log("AudioEngine: setPlayMode() called. Mode:", mode);
+    const wasPlaying = this.isPlaying;
+    if (wasPlaying) {
+      this.stop();
+    }
+    this.playMode = mode;
+    if (wasPlaying) {
+      this.start();
+    }
+  }
+
+  public getPlayMode(): 'synth' | 'song' {
+    return this.playMode;
+  }
+
+  public loadSong(file: File): Promise<string> {
+    console.log("AudioEngine: loadSong() called for file:", file.name);
+    this.init();
+    return new Promise((resolve, reject) => {
+      if (!this.ctx) {
+        reject(new Error('AudioContext not initialized'));
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const arrayBuffer = e.target?.result as ArrayBuffer;
+          if (!arrayBuffer) {
+            reject(new Error('Failed to read file buffer'));
+            return;
+          }
+          console.log("AudioEngine: audio file buffer loaded, decoding...");
+          this.ctx!.decodeAudioData(
+            arrayBuffer,
+            (buffer) => {
+              this.loadedAudioBuffer = buffer;
+              console.log("AudioEngine: decoding complete! Duration:", buffer.duration, "Sample Rate:", buffer.sampleRate);
+              resolve(file.name);
+            },
+            (err) => {
+              console.error("AudioEngine: decodeAudioData error callback:", err);
+              reject(err || new Error('Error decoding audio data'));
+            }
+          );
+        } catch (err) {
+          console.error("AudioEngine: loadSong exception:", err);
+          reject(err);
+        }
+      };
+      reader.onerror = () => reject(new Error('File reader error'));
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
+  public getSongDuration(): number {
+    return this.loadedAudioBuffer ? this.loadedAudioBuffer.duration : 0;
+  }
+
   public updateParams(newParams: AudioEngineParams) {
     this.params = newParams;
     if (!this.ctx) return;
 
     const now = this.ctx.currentTime;
 
+    // Ensure all parameters are valid numbers and fallback if NaN
+    const masterVol = isNaN(this.params.masterVolume) ? 0.8 : this.params.masterVolume;
+    const intensityVal = isNaN(this.params.intensity) ? 0.5 : this.params.intensity;
+    const panVal = isNaN(this.params.pan) ? 0 : this.params.pan;
+    const reverbVal = isNaN(this.params.reverb) ? 0 : this.params.reverb;
+    const delayVal = isNaN(this.params.delay) ? 0 : this.params.delay;
+
     // 1. Master Volume
     if (this.masterGain) {
-      this.masterGain.gain.setTargetAtTime(this.params.masterVolume, now, 0.1);
+      this.masterGain.gain.setTargetAtTime(masterVol, now, 0.1);
     }
 
     // 2. Filter Cutoff (Intensity/Bass mapping)
     if (this.filterNode) {
-      // Maps intensity [0, 1] to low-pass frequency [250Hz, 6000Hz]
-      const targetCutoff = 250 + (this.params.intensity * 5750);
+      const targetCutoff = 250 + (intensityVal * 5750);
       this.filterNode.frequency.setTargetAtTime(targetCutoff, now, 0.15);
-      // More intensity = higher filter resonance
-      this.filterNode.Q.setTargetAtTime(1.0 + (this.params.intensity * 8.0), now, 0.15);
+      this.filterNode.Q.setTargetAtTime(1.0 + (intensityVal * 8.0), now, 0.15);
     }
 
     // 3. Stereo Panning
-    if (this.pannerNode && this.params.pan !== undefined) {
-      this.pannerNode.pan.setTargetAtTime(this.params.pan, now, 0.15);
+    if (this.pannerNode && panVal !== undefined) {
+      this.pannerNode.pan.setTargetAtTime(panVal, now, 0.15);
     }
 
     // 4. Reverb send gain
-    if (this.reverbGain && this.params.reverb !== undefined) {
-      // Scale to 0.7 max to prevent clipping/drowning
-      this.reverbGain.gain.setTargetAtTime(this.params.reverb * 0.7, now, 0.15);
+    if (this.reverbGain && reverbVal !== undefined) {
+      this.reverbGain.gain.setTargetAtTime(reverbVal * 0.7, now, 0.15);
     }
 
     // 5. Delay send gain
-    if (this.delayLevelGain && this.params.delay !== undefined) {
-      // Scale to 0.6 max
-      this.delayLevelGain.gain.setTargetAtTime(this.params.delay * 0.6, now, 0.15);
+    if (this.delayLevelGain && delayVal !== undefined) {
+      this.delayLevelGain.gain.setTargetAtTime(delayVal * 0.6, now, 0.15);
     }
 
     // 6. Update track gains with target ramps to prevent clicking
-    if (this.drumsGain) this.drumsGain.gain.setTargetAtTime(this.params.layers.drums, now, 0.1);
-    if (this.pianoGain) this.pianoGain.gain.setTargetAtTime(this.params.layers.piano * 0.7, now, 0.1);
-    if (this.guitarGain) this.guitarGain.gain.setTargetAtTime(this.params.layers.guitar * 0.6, now, 0.1);
-    if (this.synthGain) this.synthGain.gain.setTargetAtTime(this.params.layers.synth * 0.5, now, 0.05);
-    if (this.padGain) this.padGain.gain.setTargetAtTime(this.params.layers.ambientPad * 0.8, now, 0.15);
-    if (this.bassGain) this.bassGain.gain.setTargetAtTime(this.params.layers.bass * 0.7, now, 0.1);
-  }
+    const dVol = isNaN(this.params.layers.drums) ? 0 : this.params.layers.drums;
+    const pVol = isNaN(this.params.layers.piano) ? 0 : this.params.layers.piano;
+    const gVol = isNaN(this.params.layers.guitar) ? 0 : this.params.layers.guitar;
+    const sVol = isNaN(this.params.layers.synth) ? 0 : this.params.layers.synth;
+    const padVol = isNaN(this.params.layers.ambientPad) ? 0 : this.params.layers.ambientPad;
+    const bVol = isNaN(this.params.layers.bass) ? 0 : this.params.layers.bass;
 
-  // --- COMPONENT SYNTHESIZERS ---
+    if (this.drumsGain) this.drumsGain.gain.setTargetAtTime(dVol, now, 0.1);
+    if (this.pianoGain) this.pianoGain.gain.setTargetAtTime(pVol * 0.7, now, 0.1);
+    if (this.guitarGain) this.guitarGain.gain.setTargetAtTime(gVol * 0.6, now, 0.1);
+    if (this.synthGain) this.synthGain.gain.setTargetAtTime(sVol * 0.5, now, 0.05);
+    if (this.padGain) this.padGain.gain.setTargetAtTime(padVol * 0.8, now, 0.15);
+    if (this.bassGain) this.bassGain.gain.setTargetAtTime(bVol * 0.7, now, 0.1);
+  }
 
   // Ambient Pad: Detuned Drone Synthesis
   private startAmbientDrone() {
-    if (!this.ctx || !this.padGain) return;
+    if (!this.ctx || !this.padGain || this.playMode === 'song') return;
+
+    // Clear any existing active drone oscillators
+    this.stopAmbientDrone();
 
     const createDroneVoice = (freq: number, detune: number) => {
       if (!this.ctx || !this.padGain) return;
@@ -289,6 +457,7 @@ export class AudioEngine {
       osc.connect(gain);
       gain.connect(this.padGain);
       osc.start();
+      this.droneOscillators.push(osc);
     };
 
     // A minor background pad chords (A2 and E3 detuned)
@@ -298,9 +467,25 @@ export class AudioEngine {
     createDroneVoice(220.0, 5);    // Octave
   }
 
+  private stopAmbientDrone() {
+    this.droneOscillators.forEach(osc => {
+      try {
+        osc.stop();
+      } catch (e) {
+        // already stopped
+      }
+      try {
+        osc.disconnect();
+      } catch (e) {
+        // already disconnected
+      }
+    });
+    this.droneOscillators = [];
+  }
+
   // Lead Synthesizer Note Triggering (Continuous Pitch)
   public setLeadSynthPitch(freq: number, active: boolean) {
-    if (!this.ctx || !this.synthGain) return;
+    if (!this.ctx || !this.synthGain || this.playMode === 'song') return;
 
     const now = this.ctx.currentTime;
 
@@ -326,18 +511,19 @@ export class AudioEngine {
       this.leadOsc1.detune.setValueAtTime(-15, now);
       this.leadOsc2.detune.setValueAtTime(15, now);
 
+      // connect to master
       this.leadOsc1.connect(this.leadVoiceGain);
       this.leadOsc2.connect(this.leadVoiceGain);
       this.leadVoiceGain.connect(this.synthGain);
 
-      this.leadOsc1.start();
-      this.leadOsc2.start();
+      this.leadOsc1.start(now);
+      this.leadOsc2.start(now);
     }
 
-    // Target the frequency smoothly
+    // Smooth slide (portamento)
     this.leadOsc1.frequency.setTargetAtTime(freq, now, 0.08);
-    this.leadOsc2.frequency.setTargetAtTime(freq * 1.005, now, 0.08);
-    
+    this.leadOsc2.frequency.setTargetAtTime(freq, now, 0.08);
+
     // Ramp up gain
     this.leadVoiceGain.gain.setTargetAtTime(0.35, now, 0.05);
     this.activeLeadFreq = freq;
@@ -367,7 +553,7 @@ export class AudioEngine {
   }
 
   private scheduleStep(step: number, time: number) {
-    if (!this.ctx) return;
+    if (!this.ctx || this.playMode === 'song') return;
 
     const bar = Math.floor(step / 16);
     const chordIndex = Math.floor(this.currentStep / 4) % 4; // Cycles Amin -> Fmaj -> Cmaj -> Gmaj
@@ -672,4 +858,5 @@ export class AudioEngine {
     osc.stop(time + duration + 0.1);
   }
 }
+
 export const audioEngineInstance = new AudioEngine();

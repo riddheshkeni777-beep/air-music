@@ -55,6 +55,7 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
   isPlaying,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const skeletonCanvasRef = useRef<HTMLCanvasElement>(null);
   const animationFrameRef = useRef<number | null>(null);
   const particlesRef = useRef<Particle[]>([]);
   const ripplesRef = useRef<Ripple[]>([]);
@@ -71,10 +72,15 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
   useEffect(() => {
     const handleResize = () => {
       const canvas = canvasRef.current;
+      const skCanvas = skeletonCanvasRef.current;
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
       canvas.width = rect.width * window.devicePixelRatio;
       canvas.height = rect.height * window.devicePixelRatio;
+      if (skCanvas) {
+        skCanvas.width = rect.width * window.devicePixelRatio;
+        skCanvas.height = rect.height * window.devicePixelRatio;
+      }
     };
 
     window.addEventListener('resize', handleResize);
@@ -88,9 +94,11 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
   // Main Render Loop
   useEffect(() => {
     const canvas = canvasRef.current;
+    const skCanvas = skeletonCanvasRef.current;
     if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
+    const skCtx = skCanvas?.getContext('2d');
     if (!ctx) return;
 
     const render = () => {
@@ -109,6 +117,11 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
       ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
       const logicalWidth = width / window.devicePixelRatio;
       const logicalHeight = height / window.devicePixelRatio;
+
+      if (skCtx && skCanvas) {
+        skCtx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+        skCtx.clearRect(0, 0, logicalWidth, logicalHeight);
+      }
 
       // 1. GET AUDIO ANALYSER DATA
       const analyser = audioEngineInstance.analyser;
@@ -188,8 +201,10 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
       // 6. RENDER AND UPDATE PARTICLES
       drawAndUpdateParticles(ctx);
 
-      // 7. DRAW HAND SKELETONS ON TOP
-      drawHandSkeletons(ctx, logicalWidth, logicalHeight, themeId);
+      // 7. DRAW HAND SKELETONS ON TOP (Draw on clean overlay context to prevent motion blur)
+      if (skCtx) {
+        drawHandSkeletons(skCtx, logicalWidth, logicalHeight, themeId);
+      }
 
       animationFrameRef.current = requestAnimationFrame(render);
     };
@@ -619,16 +634,16 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
 
       // 1. CHOOSE PARTICLE COLOR BY THEME & ACTIVE CHANNEL
       let color = '#a855f7'; // purple default
-      let count = 2; // spawn count
+      let count = 1; // spawn count
       let shape: 'circle' | 'square' | 'triangle' | 'star' = 'circle';
 
       if (themeId === 'galaxy') {
         color = hand.id === 0 ? '#ec4899' : '#a855f7'; // Pink vs Purple
-        count = 3;
+        count = 1;
         shape = 'circle';
       } else if (themeId === 'cyberpunk') {
         color = hand.id === 0 ? '#06b6d4' : '#f43f5e'; // Cyan vs Hot Pink
-        count = 4;
+        count = 2;
         shape = Math.random() > 0.5 ? 'square' : 'circle';
       } else if (themeId === 'ocean') {
         color = hand.id === 0 ? '#38bdf8' : '#2dd4bf'; // Light blue vs Teal
@@ -636,28 +651,15 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
         shape = 'circle'; // bubble
       } else if (themeId === 'forest') {
         color = hand.id === 0 ? '#10b981' : '#f59e0b'; // Emerald vs Golden amber
-        count = 2;
+        count = 1;
         shape = 'triangle'; // Leaf/shard
       } else if (themeId === 'geometry') {
         color = '#ffffff';
-        count = 2;
+        count = 1;
         shape = 'star';
       }
 
-      // 2. TRIGGER DYNAMIC RIPPLES
-      // Trigger a ripple on fast hand movement or chord strike
-      const velocityMag = 1.0; // simple mock scale
-      if (Math.random() > 0.94) {
-        ripplesRef.current.push({
-          x: mappedX,
-          y: mappedY,
-          radius: 10,
-          maxRadius: 80 + Math.random() * 80 + (avgVolume / 255) * 50,
-          color,
-          alpha: 0.8,
-          width: 2 + Math.random() * 3,
-        });
-      }
+      // 2. TRIGGER DYNAMIC RIPPLES (Removed to reduce visual noise and improve frame rate)
 
       // 3. GENERATE EMITTING PARTICLES ON CORE LANDMARKS (FINGERTIPS & PALM)
       const emitterLandmarks = [
@@ -673,6 +675,9 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
         if (!hand.landmarks[idx]) return;
         const ptX = w - (hand.landmarks[idx].x * w);
         const ptY = hand.landmarks[idx].y * h;
+
+        // Reduce particle emission frequency (only spawn 30% of frames per landmark)
+        if (Math.random() > 0.3) return;
 
         for (let i = 0; i < count; i++) {
           const sizeFactor = themeId === 'ocean' ? (5 + Math.random() * 10) : (1.5 + Math.random() * 4);
@@ -927,6 +932,11 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
         ref={canvasRef}
         id="visualizer-canvas"
         className="w-full h-full block"
+      />
+      <canvas
+        ref={skeletonCanvasRef}
+        id="skeleton-canvas"
+        className="absolute inset-0 w-full h-full block pointer-events-none"
       />
       {/* Visual FPS Overlay inside the visualizer box */}
       <div className="absolute bottom-4 left-4 font-mono text-[10px] text-gray-500 bg-black/40 backdrop-blur-md px-2 py-1 rounded border border-white/5 z-20">

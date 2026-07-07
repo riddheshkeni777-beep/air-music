@@ -30,6 +30,12 @@ export default function App() {
   const [isAutopilot, setIsAutopilot] = useState(true);
   const [isPending, startTransition] = useTransition();
 
+  // Play Mode and Song Upload States
+  const [playMode, setPlayMode] = useState<'synth' | 'song'>('synth');
+  const [songName, setSongName] = useState<string | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [songLoaded, setSongLoaded] = useState(false);
+
   // MediaPipe library load state
   const [mediaPipeLoaded, setMediaPipeLoaded] = useState(false);
   const [loadingError, setLoadingError] = useState<string | null>(null);
@@ -131,6 +137,30 @@ export default function App() {
       reverb: 0,
       delay: 0,
     }));
+  };
+
+  const handleSongUpload = async (file: File) => {
+    setIsAnalyzing(true);
+    setSongName(file.name);
+    try {
+      await audioEngineInstance.loadSong(file);
+      setSongLoaded(true);
+      // Automatically switch to song playMode
+      setPlayMode('song');
+      audioEngineInstance.setPlayMode('song');
+    } catch (err: any) {
+      console.error('Song load error', err);
+      alert('Error decoding audio file. Please try another audio file (like MP3 or WAV).');
+      setSongName(null);
+      setSongLoaded(false);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handlePlayModeToggle = (mode: 'synth' | 'song') => {
+    setPlayMode(mode);
+    audioEngineInstance.setPlayMode(mode);
   };
 
   const handleToggleAutopilot = (forceVal?: boolean) => {
@@ -253,7 +283,8 @@ export default function App() {
     for (let hIndex = 0; hIndex < results.multiHandLandmarks.length; hIndex++) {
       const landmarks = results.multiHandLandmarks[hIndex];
       const handednessInfo = results.multiHandedness[hIndex];
-      const isRightHand = handednessInfo.label === 'Right'; // MediaPipe returns mirrored labels
+      // Invert the handedness label to correctly match physical hands when mirrored
+      const isRightHand = handednessInfo.label === 'Left';
 
       // 1. Calculate centroid (average)
       let sumX = 0, sumY = 0, sumZ = 0;
@@ -707,15 +738,17 @@ export default function App() {
         )}
 
         {/* BENTO THEME INTERFACE ACCENT SWITCHER */}
-        <div className="w-full">
-          <ThemeSelector
-            currentThemeId={currentThemeId}
-            onThemeSelect={handleThemeSelect}
-          />
-        </div>
+        {!isPlaying && (
+          <div className="w-full">
+            <ThemeSelector
+              currentThemeId={currentThemeId}
+              onThemeSelect={handleThemeSelect}
+            />
+          </div>
+        )}
 
         {/* PHYSICAL WEBCAM HUD AND MIXER METERS */}
-        <div className="w-full h-auto max-h-[50vh] overflow-y-auto no-scrollbar">
+        <div className="w-full h-auto max-h-[72vh] overflow-y-auto no-scrollbar">
           <InstrumentControls
             currentTheme={activeTheme}
             isPlaying={isPlaying}
@@ -726,6 +759,12 @@ export default function App() {
             videoRef={videoRef}
             cameraActive={cameraActive}
             fps={trackingFps}
+            playMode={playMode}
+            onPlayModeChange={handlePlayModeToggle}
+            songName={songName}
+            isAnalyzing={isAnalyzing}
+            songLoaded={songLoaded}
+            onSongUpload={handleSongUpload}
           />
         </div>
 
