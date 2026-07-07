@@ -20,6 +20,20 @@ Air Music is a premium, immersive web-based synthesizer that uses your device's 
 
 ---
 
+  ## 🎵 Song Player & DSP Stem Separation
+
+In addition to procedural synthesis, **Air Music** includes a song player mode that lets you upload any audio file (.mp3, .wav, .ogg) and isolate its tracks in real-time.
+
+* **Crossover Filter Bank**: Uses five parallel Web Audio API BiquadFilterNodes (Lowpass, Bandpass, Highpass crossover networks) calibrated to separate different audio stems:
+  * **Drums**: Transients & rhythmic band filters.
+  * **Vocals/Lyrics**: Midrange bandpass centered at 1000Hz.
+  * **Guitar**: Mid-high bandpass centered at 2200Hz.
+  * **Lead Melody**: Highpass filter targeting lead treble lines.
+  * **Bass**: Sub-bass lowpass filter centered at 150Hz.
+* **Interactive Tuning**: Use Left Hand finger extensions to dynamically solo/mute these frequency-isolated stems of your uploaded song in real-time, just like in synth mode!
+
+---
+
 ## 🛠️ Tech Stack
 
 * **Frontend**: React 19, TypeScript, Vite
@@ -53,20 +67,6 @@ The synthesizer maps hand pose telemetry to instrument layers and parameters:
 | **Depth (Z-Axis / Size)** | Musical Intensity | Moving hand closer increases intensity; moving hand away decreases it. |
 | **Wrist Tilt (Clockwise)** | Reverb Send Level | Tilting wrist clockwise adds spacious feedback reverb. |
 | **Wrist Tilt (Anticlockwise)** | Echo/Delay Level | Tilting wrist counter-clockwise adds echo repetitions. |
-
----
-
-## 🎵 Song Player & DSP Stem Separation
-
-In addition to procedural synthesis, **Air Music** includes a song player mode that lets you upload any audio file (.mp3, .wav, .ogg) and isolate its tracks in real-time.
-
-* **Crossover Filter Bank**: Uses five parallel Web Audio API BiquadFilterNodes (Lowpass, Bandpass, Highpass crossover networks) calibrated to separate different audio stems:
-  * **Drums**: Transients & rhythmic band filters.
-  * **Vocals/Lyrics**: Midrange bandpass centered at 1000Hz.
-  * **Guitar**: Mid-high bandpass centered at 2200Hz.
-  * **Lead Melody**: Highpass filter targeting lead treble lines.
-  * **Bass**: Sub-bass lowpass filter centered at 150Hz.
-* **Interactive Tuning**: Use Left Hand finger extensions to dynamically solo/mute these frequency-isolated stems of your uploaded song in real-time, just like in synth mode!
 
 ---
 
