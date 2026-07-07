@@ -39,8 +39,11 @@ export default function App() {
     masterVolume: 0.8,
     intensity: 0.6,
     tempo: 120,
-    layers: { drums: 0.6, piano: 0.7, guitar: 0.5, synth: 0.4, ambientPad: 0.8 },
+    layers: { drums: 0.6, piano: 0.7, guitar: 0.5, synth: 0.4, ambientPad: 0.8, bass: 0.6 },
     isAutopilot: true,
+    pan: 0,
+    reverb: 0,
+    delay: 0,
   });
 
   // Performance FPS Trackers
@@ -123,7 +126,10 @@ export default function App() {
     // Smoothly clear audio meters
     setAudioParams(prev => ({
       ...prev,
-      layers: { drums: 0, piano: 0, guitar: 0, synth: 0, ambientPad: 0 }
+      layers: { drums: 0, piano: 0, guitar: 0, synth: 0, ambientPad: 0, bass: 0 },
+      pan: 0,
+      reverb: 0,
+      delay: 0,
     }));
   };
 
@@ -142,8 +148,12 @@ export default function App() {
           guitar: 0.5,
           synth: 0.4,
           ambientPad: 0.8,
+          bass: 0.6,
         },
         isAutopilot: true,
+        pan: 0,
+        reverb: 0,
+        delay: 0,
       };
       setAudioParams(autopilotParams);
       audioEngineInstance.updateParams(autopilotParams);
@@ -334,10 +344,25 @@ export default function App() {
         wristRotation,
         horizontalPosition: centroid.x < 0.4 ? 'Left' : centroid.x > 0.6 ? 'Right' : 'Center',
         verticalPosition: centroid.y < 0.4 ? 'Top' : centroid.y > 0.6 ? 'Bottom' : 'Middle',
+        isThumbExtended,
+        isIndexExtended,
+        isMiddleExtended,
+        isRingExtended,
+        isPinkyExtended,
       });
     }
 
     setHands(detectedHands);
+
+    // Playback state toggle (Open Palm -> Resume/Play, Closed Fist -> Stop/Pause) on Right Hand
+    const rightHand = detectedHands.find(h => h.handedness === 'Right');
+    if (rightHand) {
+      if (rightHand.gesture === 'Open Palm' && !isPlaying) {
+        handleStart();
+      } else if (rightHand.gesture === 'Closed Fist' && isPlaying) {
+        handleStop();
+      }
+    }
 
     // 6. MAP PHYSICAL HANDS TO SYNTHESIZER SOUND PARAMETERS
     if (isPlaying) {
@@ -351,148 +376,80 @@ export default function App() {
   const mapHandsToSynth = (activeHands: HandData[]) => {
     let masterVolume = 0.8;
     let intensity = 0.5;
+    let pan = 0;
+    let reverb = 0;
+    let delay = 0;
     
     let drumsVol = 0;
     let pianoVol = 0;
     let guitarVol = 0;
     let synthVol = 0;
-    let padVol = 0;
+    let padVol = 0.6; // default ambient pad backing level
+    let bassVol = 0;
 
-    let isGlobalMute = false;
+    const leftHand = activeHands.find(h => h.handedness === 'Left');
+    const rightHand = activeHands.find(h => h.handedness === 'Right');
 
-    // Check for a global Closed Fist mute condition
-    activeHands.forEach(h => {
-      if (h.isFist) isGlobalMute = true;
-    });
+    // --- LEFT HAND: INSTRUMENT SELECTION & MELODY PITCH ---
+    if (leftHand) {
+      drumsVol = leftHand.isThumbExtended ? 0.8 : 0;
+      pianoVol = leftHand.isIndexExtended ? 0.8 : 0;
+      guitarVol = leftHand.isMiddleExtended ? 0.8 : 0;
+      synthVol = leftHand.isRingExtended ? 0.8 : 0;
+      bassVol = leftHand.isPinkyExtended ? 0.8 : 0;
 
-    if (!isGlobalMute) {
-      let hasAnySynthActive = false;
-      let maxScalePitch = 0;
-
-      activeHands.forEach((hand) => {
-        // Hand vertical position maps to master volume
-        // Y goes 0 to 1, 0 is top, so we reverse it
-        const volCandidate = Math.max(0.15, Math.min(1.0, (1.1 - hand.centroid.y)));
-        masterVolume = volCandidate;
-
-        // Proximity depth maps to filter intensity
-        intensity = Math.max(intensity, hand.depthIndex);
-
-        // --- LAYER 1: UNIVERSAL POSITIONAL & ROTATIONAL CONTROLS (ANY HAND) ---
-        // Wrist CW tilt -> add drums (angle is > 5 deg)
-        if (hand.wristAngle > 5) {
-          drumsVol = Math.max(drumsVol, Math.min(1, (hand.wristAngle - 5) / 20));
-        }
-        // Wrist CCW tilt -> add piano chords (angle is < -5 deg)
-        if (hand.wristAngle < -5) {
-          pianoVol = Math.max(pianoVol, Math.min(1, (-hand.wristAngle - 5) / 20));
-        }
-
-        // Horizontal coordinate left (centroid.x > 0.5) -> Plucked strings
-        if (hand.centroid.x > 0.5) {
-          guitarVol = Math.max(guitarVol, Math.min(1, (hand.centroid.x - 0.5) / 0.35));
-        }
-
-        // Horizontal coordinate right (centroid.x < 0.5) -> Lead Melody Synth
-        let synthActiveForThisHand = false;
-        let scalePitch = 0;
-        if (hand.centroid.x < 0.5) {
-          const currentSynthVol = Math.min(1, (0.5 - hand.centroid.x) / 0.35);
-          synthVol = Math.max(synthVol, currentSynthVol);
-
-          // Map right coordinate (0.1 to 0.5) to pitch index in scale
-          const xNormal = Math.max(0, Math.min(1, (0.5 - hand.centroid.x) / 0.35)); // [0, 1] range
-          const scaleIndex = Math.min(
-            PENTATONIC_SCALE.length - 1,
-            Math.max(0, Math.floor(xNormal * PENTATONIC_SCALE.length))
-          );
-          scalePitch = PENTATONIC_SCALE[scaleIndex];
-          synthActiveForThisHand = true;
-        }
-
-        // If open palm, triggers ambient pad drone
-        if (hand.isOpenPalm) {
-          padVol = Math.max(padVol, 0.85);
-        }
-
-        // --- LAYER 2: INTUITIVE FINGER-COUNT CONVENIENCE MULTIPLIER ---
-        const fingers = hand.extendedFingers ?? 0;
-        if (fingers === 1) {
-          // 1 Finger extended: Solo lead synthesizer
-          synthVol = Math.max(synthVol, 0.85);
-          synthActiveForThisHand = true;
-          if (scalePitch === 0) {
-            const xNormal = Math.max(0, Math.min(1, 1.0 - hand.centroid.x));
-            const scaleIndex = Math.min(PENTATONIC_SCALE.length - 1, Math.max(0, Math.floor(xNormal * PENTATONIC_SCALE.length)));
-            scalePitch = PENTATONIC_SCALE[scaleIndex];
-          }
-        } else if (fingers === 2) {
-          // 2 Fingers extended: Lead synth + Plucked Guitar
-          synthVol = Math.max(synthVol, 0.75);
-          guitarVol = Math.max(guitarVol, 0.8);
-          synthActiveForThisHand = true;
-          if (scalePitch === 0) {
-            const xNormal = Math.max(0, Math.min(1, 1.0 - hand.centroid.x));
-            const scaleIndex = Math.min(PENTATONIC_SCALE.length - 1, Math.max(0, Math.floor(xNormal * PENTATONIC_SCALE.length)));
-            scalePitch = PENTATONIC_SCALE[scaleIndex];
-          }
-        } else if (fingers === 3) {
-          // 3 Fingers extended: Lead + Guitar + Piano Chords
-          synthVol = Math.max(synthVol, 0.65);
-          guitarVol = Math.max(guitarVol, 0.75);
-          pianoVol = Math.max(pianoVol, 0.85);
-          synthActiveForThisHand = true;
-          if (scalePitch === 0) {
-            const xNormal = Math.max(0, Math.min(1, 1.0 - hand.centroid.x));
-            const scaleIndex = Math.min(PENTATONIC_SCALE.length - 1, Math.max(0, Math.floor(xNormal * PENTATONIC_SCALE.length)));
-            scalePitch = PENTATONIC_SCALE[scaleIndex];
-          }
-        } else if (fingers === 4) {
-          // 4 Fingers extended: Lead + Guitar + Piano + Drums
-          synthVol = Math.max(synthVol, 0.65);
-          guitarVol = Math.max(guitarVol, 0.7);
-          pianoVol = Math.max(pianoVol, 0.8);
-          drumsVol = Math.max(drumsVol, 0.85);
-          synthActiveForThisHand = true;
-          if (scalePitch === 0) {
-            const xNormal = Math.max(0, Math.min(1, 1.0 - hand.centroid.x));
-            const scaleIndex = Math.min(PENTATONIC_SCALE.length - 1, Math.max(0, Math.floor(xNormal * PENTATONIC_SCALE.length)));
-            scalePitch = PENTATONIC_SCALE[scaleIndex];
-          }
-        } else if (fingers === 5) {
-          // 5 Fingers extended: Full orchestra band peaking together
-          synthVol = Math.max(synthVol, 0.75);
-          guitarVol = Math.max(guitarVol, 0.85);
-          pianoVol = Math.max(pianoVol, 0.85);
-          drumsVol = Math.max(drumsVol, 0.85);
-          padVol = Math.max(padVol, 0.9);
-          synthActiveForThisHand = true;
-          if (scalePitch === 0) {
-            const xNormal = Math.max(0, Math.min(1, 1.0 - hand.centroid.x));
-            const scaleIndex = Math.min(PENTATONIC_SCALE.length - 1, Math.max(0, Math.floor(xNormal * PENTATONIC_SCALE.length)));
-            scalePitch = PENTATONIC_SCALE[scaleIndex];
-          }
-        }
-
-        if (synthActiveForThisHand && scalePitch > 0) {
-          hasAnySynthActive = true;
-          maxScalePitch = Math.max(maxScalePitch, scalePitch);
-        }
-      });
-
-      if (hasAnySynthActive && maxScalePitch > 0) {
-        audioEngineInstance.setLeadSynthPitch(maxScalePitch, true);
+      // If lead synth is active, map Left Hand horizontal coordinate (mirrored) to pitch index in pentatonic scale
+      if (synthVol > 0.05) {
+        const xNormal = Math.max(0, Math.min(1.0, 1.0 - leftHand.centroid.x)); // user's left-to-right
+        const scaleIndex = Math.min(
+          PENTATONIC_SCALE.length - 1,
+          Math.max(0, Math.floor(xNormal * PENTATONIC_SCALE.length))
+        );
+        audioEngineInstance.setLeadSynthPitch(PENTATONIC_SCALE[scaleIndex], true);
       } else {
         audioEngineInstance.setLeadSynthPitch(0, false);
       }
     } else {
-      // Global Closed Fist triggers full mute
-      drumsVol = 0;
-      pianoVol = 0;
-      guitarVol = 0;
-      synthVol = 0;
-      padVol = 0;
-      audioEngineInstance.setLeadSynthPitch(0, false);
+      // Fallback if no Left Hand is in view: keep last values or moderate defaults so Right Hand can play
+      drumsVol = audioParams.layers.drums;
+      pianoVol = audioParams.layers.piano;
+      guitarVol = audioParams.layers.guitar;
+      synthVol = audioParams.layers.synth;
+      bassVol = audioParams.layers.bass;
+    }
+
+    // --- RIGHT HAND: MUSICAL EXPRESSION ---
+    if (rightHand) {
+      // 1. Height (Up/Down Y) -> Master Volume
+      // Mirrored Y: 0 is top (loud), 1 is bottom (silent). We calculate: 1 - Y
+      masterVolume = Math.max(0.05, Math.min(1.0, 1.0 - rightHand.centroid.y));
+
+      // 2. Depth (Closer/Away Z size) -> Musical Intensity
+      intensity = rightHand.depthIndex;
+
+      // 3. Wrist Rotation -> Reverb & Echo/Delay
+      // Clockwise (positive angle) -> Reverb, Anticlockwise (negative angle) -> Delay
+      if (rightHand.wristAngle > 10) {
+        reverb = Math.min(1.0, (rightHand.wristAngle - 10) / 35.0);
+        delay = 0;
+      } else if (rightHand.wristAngle < -10) {
+        delay = Math.min(1.0, (-rightHand.wristAngle - 10) / 35.0);
+        reverb = 0;
+      } else {
+        reverb = 0;
+        delay = 0;
+      }
+
+      // 4. Horizontal (Left/Right X) -> Stereo Panning
+      // Mirror X: user left -> physical X is 1.0 (panned left), user right -> physical X is 0.0 (panned right)
+      pan = Math.max(-1.0, Math.min(1.0, (0.5 - rightHand.centroid.x) * 2));
+    } else {
+      // Fallback if no Right Hand: preserve previous expression parameters
+      masterVolume = audioParams.masterVolume;
+      intensity = audioParams.intensity;
+      pan = audioParams.pan || 0;
+      reverb = audioParams.reverb || 0;
+      delay = audioParams.delay || 0;
     }
 
     // Pack into parameters structure
@@ -506,7 +463,11 @@ export default function App() {
         guitar: guitarVol,
         synth: synthVol,
         ambientPad: padVol,
+        bass: bassVol,
       },
+      pan,
+      reverb,
+      delay,
     };
 
     setAudioParams(updatedParams);
@@ -523,12 +484,16 @@ export default function App() {
         masterVolume: prev.masterVolume,
         intensity: prev.intensity,
         tempo: prev.tempo,
+        pan: prev.pan || 0,
+        reverb: Math.max(0, (prev.reverb || 0) - 0.05),
+        delay: Math.max(0, (prev.delay || 0) - 0.05),
         layers: {
           drums: Math.max(0, prev.layers.drums - 0.08),
           piano: Math.max(0, prev.layers.piano - 0.08),
           guitar: Math.max(0, prev.layers.guitar - 0.08),
           synth: Math.max(0, prev.layers.synth - 0.15),
           ambientPad: Math.max(0, prev.layers.ambientPad - 0.05),
+          bass: Math.max(0, prev.layers.bass - 0.08),
         }
       };
 
@@ -560,37 +525,35 @@ export default function App() {
     const y = (e.clientY - bounds.top) / bounds.height;  // 0 to 1
 
     // Map simulated parameters
-    // Horizontal left-right controls guitar vs lead synth
-    let drumsVol = 0;
-    let pianoVol = 0;
-    let guitarVol = 0;
-    let synthVol = 0;
-    let padVol = 0.5; // always keep soft ambient drone
+    let drumsVol = 0.5;
+    let pianoVol = 0.6;
+    let guitarVol = 0.4;
+    let synthVol = 0.3;
+    let padVol = 0.6;
+    let bassVol = 0.5;
 
-    // Convert angle
+    // Convert angle to simulated Reverb/Delay
     const angle = virtualAngleRef.current;
+    let reverb = 0;
+    let delay = 0;
     if (angle > 10) {
-      drumsVol = Math.min(1.0, angle / 35);
+      reverb = Math.min(1.0, (angle - 10) / 35.0);
     } else if (angle < -10) {
-      pianoVol = Math.min(1.0, -angle / 35);
+      delay = Math.min(1.0, (-angle - 10) / 35.0);
     }
 
-    if (x < 0.45) {
-      // Plucked string arpeggiator on left side
-      guitarVol = (0.45 - x) / 0.45;
-    } else if (x > 0.55) {
-      // Lead melody synth on right side
-      synthVol = (x - 0.55) / 0.45;
+    if (x > 0.55) {
       const normalScale = (x - 0.55) / 0.45;
       const index = Math.min(PENTATONIC_SCALE.length - 1, Math.max(0, Math.floor(normalScale * PENTATONIC_SCALE.length)));
       audioEngineInstance.setLeadSynthPitch(PENTATONIC_SCALE[index], true);
+      synthVol = 0.8;
     } else {
       audioEngineInstance.setLeadSynthPitch(0, false);
     }
 
     const updatedParams: AudioEngineParams = {
       masterVolume: Math.max(0, Math.min(1, 1 - y)), // volume height
-      intensity: 0.4 + (x * 0.5), // X coordinate controls depth brightness
+      intensity: 0.5,
       tempo: 120,
       layers: {
         drums: drumsVol,
@@ -598,7 +561,11 @@ export default function App() {
         guitar: guitarVol,
         synth: synthVol,
         ambientPad: padVol,
+        bass: bassVol,
       },
+      pan: (x - 0.5) * 2,
+      reverb,
+      delay,
     };
 
     setAudioParams(updatedParams);

@@ -32,15 +32,27 @@ Air Music is a premium, immersive web-based synthesizer that uses your device's 
 
 ## 🕹️ How It Works (Gesture Mappings)
 
-The synthesizer maps hand telemetry data to audio parameters in real-time:
+The synthesizer maps hand pose telemetry to instrument layers and parameters:
+
+### Left Hand – Instrument Selection
+
+* **Left Thumb** → Drums
+* **Left Index Finger** → Piano
+* **Left Middle Finger** → Guitar
+* **Left Ring Finger** → Lead Synth (Pitch mapped to Left Hand X-axis)
+* **Left Little Finger** → Bass
+
+### Right Hand – Musical Expression
 
 | Gesture / Position | Control Parameter | Description |
 | :--- | :--- | :--- |
-| **Fist Closed** | Mute / Layer Off | Disables synth audio voices for the corresponding hand. |
-| **Open Palm** | Volume Increase | Unmutes/Increases volume for the active synth layer. |
-| **Horizontal (X-Axis)** | Pitch / Frequency | Moves through notes of the A-minor Pentatonic Scale. |
-| **Vertical (Y-Axis)** | Filter Cutoff / Volume | Modulates the master low-pass filter or layer gain. |
-| **Depth (Z-Axis / Hand Size)** | Intensity / Reverb | Controls the feedback level and delay line mix. |
+| **Open Palm** | Play / Resume | Starts or resumes the audio synthesizer. |
+| **Closed Fist** | Pause / Stop | Pauses or stops the audio synthesizer. |
+| **Vertical (Y-Axis)** | Master Volume | Raising hand increases volume; lowering hand decreases volume. |
+| **Horizontal (X-Axis)** | Stereo Panning | Moving hand left pans left; moving hand right pans right. |
+| **Depth (Z-Axis / Size)** | Musical Intensity | Moving hand closer increases intensity; moving hand away decreases it. |
+| **Wrist Tilt (Clockwise)** | Reverb Send Level | Tilting wrist clockwise adds spacious feedback reverb. |
+| **Wrist Tilt (Anticlockwise)** | Echo/Delay Level | Tilting wrist counter-clockwise adds echo repetitions. |
 
 ---
 

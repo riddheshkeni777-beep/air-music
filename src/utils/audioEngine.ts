@@ -8,7 +8,11 @@ export class AudioEngine {
   private masterGain: GainNode | null = null;
   private delayNode: DelayNode | null = null;
   private delayGain: GainNode | null = null;
+  private delayLevelGain: GainNode | null = null;
   private filterNode: BiquadFilterNode | null = null;
+  private reverbNode: ConvolverNode | null = null;
+  private reverbGain: GainNode | null = null;
+  private pannerNode: StereoPannerNode | null = null;
   public analyser: AnalyserNode | null = null;
 
   // Track Gains
@@ -17,6 +21,7 @@ export class AudioEngine {
   private guitarGain: GainNode | null = null;
   private synthGain: GainNode | null = null;
   private padGain: GainNode | null = null;
+  private bassGain: GainNode | null = null;
 
   // Active state parameters
   private params: AudioEngineParams = {
@@ -29,7 +34,11 @@ export class AudioEngine {
       guitar: 0,
       synth: 0,
       ambientPad: 0,
+      bass: 0,
     },
+    pan: 0,
+    reverb: 0,
+    delay: 0,
   };
 
   // Sequencer Variables
@@ -57,6 +66,28 @@ export class AudioEngine {
     // Lazy initialisation on user start click
   }
 
+  private createReverbNode(seconds: number, decay: number): ConvolverNode | null {
+    if (!this.ctx) return null;
+    try {
+      const rate = this.ctx.sampleRate;
+      const len = rate * seconds;
+      const impulse = this.ctx.createBuffer(2, len, rate);
+      const left = impulse.getChannelData(0);
+      const right = impulse.getChannelData(1);
+      for (let i = 0; i < len; i++) {
+        const decayValue = Math.exp(-i / (rate * decay));
+        left[i] = (Math.random() * 2 - 1) * decayValue;
+        right[i] = (Math.random() * 2 - 1) * decayValue;
+      }
+      const convolver = this.ctx.createConvolver();
+      convolver.buffer = impulse;
+      return convolver;
+    } catch (e) {
+      console.error("Failed to create convolver reverb", e);
+      return null;
+    }
+  }
+
   public init() {
     if (this.ctx) return;
     
@@ -81,15 +112,27 @@ export class AudioEngine {
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = 512;
     
-    // Build Delay line
+    // Build Panner node
+    this.pannerNode = this.ctx.createStereoPanner();
+    this.pannerNode.pan.setValueAtTime(this.params.pan || 0, this.ctx.currentTime);
+
+    // Build Delay line and delay send gain
     this.delayNode = this.ctx.createDelay(1.0);
     this.delayNode.delayTime.value = 0.333; // Triplets/eighth delay
     this.delayGain = this.ctx.createGain();
     this.delayGain.gain.value = 0.35; // feedback level
+    
+    this.delayLevelGain = this.ctx.createGain();
+    this.delayLevelGain.gain.value = 0.0; // initially off
 
     // Feedback loop
     this.delayNode.connect(this.delayGain);
     this.delayGain.connect(this.delayNode);
+
+    // Build Reverb send chain
+    this.reverbNode = this.createReverbNode(2.5, 1.5);
+    this.reverbGain = this.ctx.createGain();
+    this.reverbGain.gain.value = 0.0; // initially off
 
     // Initialize track gains
     this.drumsGain = this.ctx.createGain();
@@ -97,6 +140,7 @@ export class AudioEngine {
     this.guitarGain = this.ctx.createGain();
     this.synthGain = this.ctx.createGain();
     this.padGain = this.ctx.createGain();
+    this.bassGain = this.ctx.createGain();
 
     // Set initial gains smoothly
     this.drumsGain.gain.value = 0;
@@ -104,6 +148,7 @@ export class AudioEngine {
     this.guitarGain.gain.value = 0;
     this.synthGain.gain.value = 0;
     this.padGain.gain.value = 0;
+    this.bassGain.gain.value = 0;
 
     // CONNECTIONS
     // Tracks go to Filter
@@ -112,14 +157,24 @@ export class AudioEngine {
     this.guitarGain.connect(this.filterNode);
     this.synthGain.connect(this.filterNode);
     this.padGain.connect(this.filterNode);
+    this.bassGain.connect(this.filterNode);
 
-    // Filter goes to Delay AND Master
+    // Filter goes to Master, Reverb send, and Delay send
     this.filterNode.connect(this.masterGain);
-    this.filterNode.connect(this.delayNode);
+    
+    if (this.reverbNode && this.reverbGain) {
+      this.filterNode.connect(this.reverbNode);
+      this.reverbNode.connect(this.reverbGain);
+      this.reverbGain.connect(this.masterGain);
+    }
+
+    this.filterNode.connect(this.delayLevelGain);
+    this.delayLevelGain.connect(this.delayNode);
     this.delayNode.connect(this.masterGain);
 
-    // Master goes to Analyser, then Destination
-    this.masterGain.connect(this.analyser);
+    // Master goes to Panner, then Analyser, then Destination
+    this.masterGain.connect(this.pannerNode);
+    this.pannerNode.connect(this.analyser);
     this.analyser.connect(this.ctx.destination);
 
     // Start Ambient Drone Pad
@@ -187,12 +242,30 @@ export class AudioEngine {
       this.filterNode.Q.setTargetAtTime(1.0 + (this.params.intensity * 8.0), now, 0.15);
     }
 
-    // 3. Update track gains with target ramps to prevent clicking
+    // 3. Stereo Panning
+    if (this.pannerNode && this.params.pan !== undefined) {
+      this.pannerNode.pan.setTargetAtTime(this.params.pan, now, 0.15);
+    }
+
+    // 4. Reverb send gain
+    if (this.reverbGain && this.params.reverb !== undefined) {
+      // Scale to 0.7 max to prevent clipping/drowning
+      this.reverbGain.gain.setTargetAtTime(this.params.reverb * 0.7, now, 0.15);
+    }
+
+    // 5. Delay send gain
+    if (this.delayLevelGain && this.params.delay !== undefined) {
+      // Scale to 0.6 max
+      this.delayLevelGain.gain.setTargetAtTime(this.params.delay * 0.6, now, 0.15);
+    }
+
+    // 6. Update track gains with target ramps to prevent clicking
     if (this.drumsGain) this.drumsGain.gain.setTargetAtTime(this.params.layers.drums, now, 0.1);
     if (this.pianoGain) this.pianoGain.gain.setTargetAtTime(this.params.layers.piano * 0.7, now, 0.1);
     if (this.guitarGain) this.guitarGain.gain.setTargetAtTime(this.params.layers.guitar * 0.6, now, 0.1);
     if (this.synthGain) this.synthGain.gain.setTargetAtTime(this.params.layers.synth * 0.5, now, 0.05);
     if (this.padGain) this.padGain.gain.setTargetAtTime(this.params.layers.ambientPad * 0.8, now, 0.15);
+    if (this.bassGain) this.bassGain.gain.setTargetAtTime(this.params.layers.bass * 0.7, now, 0.1);
   }
 
   // --- COMPONENT SYNTHESIZERS ---
@@ -339,6 +412,19 @@ export class AudioEngine {
       
       if (step % 2 === 0) {
         this.synthesizePluck(noteToPlay, time, 0.35);
+      }
+    }
+
+    // 3.5. BASS SEQUENCER
+    const bassVol = this.params.layers.bass;
+    if (bassVol > 0.05) {
+      const chordNotes = this.chords[chordIndex];
+      const baseNote = chordNotes[0] / 2; // Play bass root octave lower
+      // Play root note on steps 0, 4, 8, 12, and a short syncopated note on step 10
+      if (step === 0 || step === 4 || step === 8 || step === 12) {
+        this.synthesizeBass(baseNote, time, 0.45);
+      } else if (step === 10) {
+        this.synthesizeBass(baseNote, time, 0.2);
       }
     }
 
@@ -557,6 +643,33 @@ export class AudioEngine {
     osc1.stop(time + 0.4);
     osc2.start(time);
     osc2.stop(time + 0.4);
+  }
+
+  // --- BASS PROCEDURAL SYNTHESIS ---
+  private synthesizeBass(freq: number, time: number, duration: number) {
+    if (!this.ctx || !this.bassGain) return;
+
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(freq, time);
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(200, time); // warm bass tone
+
+    // Envelope
+    gain.gain.setValueAtTime(0, time);
+    gain.gain.linearRampToValueAtTime(0.5, time + 0.02); // quick attack
+    gain.gain.exponentialRampToValueAtTime(0.001, time + duration); // decay
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.bassGain);
+
+    osc.start(time);
+    osc.stop(time + duration + 0.1);
   }
 }
 export const audioEngineInstance = new AudioEngine();

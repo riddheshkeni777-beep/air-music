@@ -201,7 +201,7 @@ export const InstrumentControls: React.FC<InstrumentControlsProps> = ({
           </div>
 
           {/* Mixing grid columns */}
-          <div className="grid grid-cols-5 gap-3 h-28 items-end">
+          <div className="grid grid-cols-6 gap-3 h-28 items-end">
             {/* Drum track */}
             <div className="flex flex-col items-center justify-end h-full gap-2 group">
               <div className="relative w-full bg-white/5 rounded-md overflow-hidden flex-1 border border-white/5 flex flex-col justify-end">
@@ -276,6 +276,21 @@ export const InstrumentControls: React.FC<InstrumentControlsProps> = ({
               <span className="text-[10px] text-gray-400 font-medium uppercase font-mono tracking-tighter">Drone</span>
               <span className="text-[9px] text-gray-600 font-mono">{Math.round(audioParams.layers.ambientPad * 100)}%</span>
             </div>
+
+            {/* Bass Track */}
+            <div className="flex flex-col items-center justify-end h-full gap-2 group">
+              <div className="relative w-full bg-white/5 rounded-md overflow-hidden flex-1 border border-white/5 flex flex-col justify-end">
+                <div
+                  className="w-full transition-all duration-150 shadow-[0_0_12px_rgba(225,29,72,0.3)]"
+                  style={{
+                    height: `${audioParams.layers.bass * 100}%`,
+                    backgroundColor: '#e11d48',
+                  }}
+                />
+              </div>
+              <span className="text-[10px] text-gray-400 font-medium uppercase font-mono tracking-tighter">Bass</span>
+              <span className="text-[9px] text-gray-600 font-mono">{Math.round(audioParams.layers.bass * 100)}%</span>
+            </div>
           </div>
 
           {/* Master Intensity / Bass filters indicator slider */}
@@ -311,25 +326,25 @@ export const InstrumentControls: React.FC<InstrumentControlsProps> = ({
           {/* NEW DUAL PERFORMANCE MODES INFO */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-b border-white/5 pb-3 mb-3">
             <div className="bg-white/5 rounded-lg p-2.5 border border-white/5">
-              <strong className="text-cyan-400 text-xs block mb-1">⚡ 1. Finger-Counting (Easiest)</strong>
-              <p className="text-[10px] text-gray-400">Extend your fingers to add sound layers instantly:</p>
+              <strong className="text-cyan-400 text-xs block mb-1">🖐️ Left Hand – Instrument Selection</strong>
+              <p className="text-[10px] text-gray-400">Extend fingers to enable/disable sound channels:</p>
               <ul className="list-none space-y-0.5 mt-1 font-mono text-[9px] text-gray-300">
-                <li>• <span className="text-amber-400">1 Finger</span>: Solo Lead Synth (draw in air)</li>
-                <li>• <span className="text-cyan-400">2 Fingers</span>: Lead Synth + Plucked Guitar</li>
-                <li>• <span className="text-purple-400">3 Fingers</span>: Lead + Guitar + Piano Chords</li>
-                <li>• <span className="text-pink-400">4 Fingers</span>: Lead + Guitar + Piano + Drums</li>
-                <li>• <span className="text-emerald-400">5 Fingers</span>: Full Orchestral Band + Drone Pad</li>
+                <li>• <span className="text-pink-400">Thumb</span>: Layer Drums</li>
+                <li>• <span className="text-purple-400">Index Finger</span>: Layer Piano Chords</li>
+                <li>• <span className="text-cyan-400">Middle Finger</span>: Layer Plucked Guitar</li>
+                <li>• <span className="text-amber-400">Ring Finger</span>: Layer Lead Synth (move hand X to play pitch)</li>
+                <li>• <span className="text-rose-400">Little Finger</span>: Layer Bass synthesizer</li>
               </ul>
             </div>
             <div className="bg-white/5 rounded-lg p-2.5 border border-white/5">
-              <strong className="text-purple-400 text-xs block mb-1">🎭 2. Universal Hand Position</strong>
-              <p className="text-[10px] text-gray-400">Control sound coordinates with either hand:</p>
+              <strong className="text-purple-400 text-xs block mb-1">🎭 Right Hand – Musical Expression</strong>
+              <p className="text-[10px] text-gray-400">Control performance parameters and state:</p>
               <ul className="list-none space-y-0.5 mt-1 font-mono text-[9px] text-gray-300">
-                <li>• <span className="text-white">Move Left</span>: Add plucked acoustic guitar</li>
-                <li>• <span className="text-white">Move Right</span>: Add lead synth melody</li>
-                <li>• <span className="text-white">Tilt Right</span>: Layer acoustic percussion drums</li>
-                <li>• <span className="text-white">Tilt Left</span>: Layer elegant piano chords</li>
-                <li>• <span className="text-rose-400">Up/Down & Depth</span>: Control master volume & filters</li>
+                <li>• <span className="text-white">Raise Up / Lower Down</span>: Master Volume</li>
+                <li>• <span className="text-white">Tilt Wrist Clockwise</span>: Increase Reverb send</li>
+                <li>• <span className="text-white">Tilt Wrist Anticlockwise</span>: Increase Echo/Delay send</li>
+                <li>• <span className="text-white">Move Left / Right</span>: Pan Audio to Left / Right</li>
+                <li>• <span className="text-white">Push Closer / Pull Away</span>: Filter Cutoff & Intensity</li>
               </ul>
             </div>
           </div>
@@ -338,43 +353,43 @@ export const InstrumentControls: React.FC<InstrumentControlsProps> = ({
             <div className="flex items-start gap-2.5">
               <span className="text-sm">↕️</span>
               <div>
-                <strong className="text-white">Raise / Lower Hand</strong>
-                <p>Moves up/down to increase or decrease Master sound volume.</p>
+                <strong className="text-white">Raise / Lower Right Hand</strong>
+                <p>Moves hand up or down to dynamically sweep master volume.</p>
               </div>
             </div>
             <div className="flex items-start gap-2.5">
               <span className="text-sm">🔍</span>
               <div>
-                <strong className="text-white">Push Closer / Pull Away</strong>
-                <p>Closer hand size opens low-pass filters, pumping rich bass & intensity.</p>
+                <strong className="text-white">Right Hand Depth (Z-Axis)</strong>
+                <p>Move hand closer to open filter cutoff and away to filter out highs.</p>
               </div>
             </div>
             <div className="flex items-start gap-2.5">
               <span className="text-sm">🔄</span>
               <div>
-                <strong className="text-white">Wrist Rotate Left & Right</strong>
-                <p>Tilt hand left/right to dynamically layer piano chords or percussive drum beats.</p>
+                <strong className="text-white">Right Wrist Rotation (Tilt)</strong>
+                <p>Rotate clockwise to dial in reverb; rotate anticlockwise for echo/delay repetitions.</p>
               </div>
             </div>
             <div className="flex items-start gap-2.5">
               <span className="text-sm">👈👉</span>
               <div>
-                <strong className="text-white">Left / Right Coordinates</strong>
-                <p>Move hand leftwards to strum plucked guitar, or rightwards to play lead synthesizer pitches.</p>
+                <strong className="text-white">Right Hand X-Axis (Pan)</strong>
+                <p>Position determines stereo balance, panning the mix to left or right speakers.</p>
               </div>
             </div>
             <div className="flex items-start gap-2.5">
               <span className="text-sm">🖐️</span>
               <div>
-                <strong className="text-white">Open Palm / 5 Fingers</strong>
-                <p>Spreads all fingers wide to float deep, lush drone pads and maximum symphonic intensity.</p>
+                <strong className="text-white">Right Open Palm</strong>
+                <p>Triggers playback start / resume state to un-mute audio components.</p>
               </div>
             </div>
             <div className="flex items-start gap-2.5">
               <span className="text-sm">✊</span>
               <div>
-                <strong className="text-white">Closed Fist / 0 Fingers</strong>
-                <p>Instantly silences the active tracks for drops, builds, or sudden musical endings.</p>
+                <strong className="text-white">Right Closed Fist</strong>
+                <p>Instantly pauses / stops the audio engine and silences the oscillators.</p>
               </div>
             </div>
           </div>

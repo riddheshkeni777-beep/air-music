@@ -30,6 +30,13 @@ export interface HandData {
   wristRotation: 'Clockwise' | 'CounterClockwise' | 'Neutral';
   horizontalPosition: 'Left' | 'Right' | 'Center';
   verticalPosition: 'Top' | 'Bottom' | 'Middle';
+
+  // Individual finger extension flags for Left Hand instrument selection
+  isThumbExtended?: boolean;
+  isIndexExtended?: boolean;
+  isMiddleExtended?: boolean;
+  isRingExtended?: boolean;
+  isPinkyExtended?: boolean;
 }
 
 export interface SynthLayerState {
@@ -38,6 +45,7 @@ export interface SynthLayerState {
   guitar: number;      // volume/intensity [0, 1]
   synth: number;       // volume/intensity [0, 1]
   ambientPad: number;   // volume/intensity [0, 1]
+  bass: number;        // volume/intensity [0, 1]
 }
 
 export interface AudioEngineParams {
@@ -46,6 +54,9 @@ export interface AudioEngineParams {
   tempo: number;        // BPM [60, 180]
   layers: SynthLayerState;
   isAutopilot?: boolean;
+  pan?: number;         // Stereo Panning [-1, 1]
+  reverb?: number;      // Reverb Send Level [0, 1]
+  delay?: number;       // Delay Send Level [0, 1]
 }
 
 export interface PerformanceStats {
