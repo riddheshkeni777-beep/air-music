@@ -1,0 +1,6 @@
+{
+  "name": "Air Music",
+  "description": "An interactive AI Gesture-Based Music & Visual Synthesizer that transforms real-time hand gestures from your webcam into expressive music and responsive, beautiful visuals.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
